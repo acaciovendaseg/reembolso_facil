@@ -327,586 +327,87 @@
         const analytics = getAnalytics(app);
         const db = getFirestore(app);
         const auth = getAuth();
-        const appId = firebaseConfig.appId; // Use appId from your config for path consistency
-
+        
         let userId = null;
         let vehiclesCache = [];
         
-        // --- GPS State ---
-        let isTracking = false;
-        let watchId = null;
-        let currentTrack = [];
-        let tripsCache = [];
-        let mapInstance = null;
-        let isLogin = true;
-
-        // --- DOM Elements ---
-        // Auth elements
-        const authContainer = document.getElementById('auth-container');
-        const appContainer = document.getElementById('app-container');
-        const loginForm = document.getElementById('login-form');
-        const authTitle = document.getElementById('auth-title');
-        const authButton = document.getElementById('auth-button');
-        const authToggleText = document.getElementById('auth-toggle-text');
-        const authToggleButton = document.getElementById('auth-toggle-button');
-        const authMessage = document.getElementById('auth-message');
-        const logoutButton = document.getElementById('logout-button');
-
-        // Main App elements
-        const tabButtons = document.querySelectorAll('.tab-button');
-        const tabContents = document.querySelectorAll('.tab-content');
-        const tripForm = document.getElementById('trip-form');
-        const startKmInput = document.getElementById('startKm');
-        const endKmInput = document.getElementById('endKm');
-        const rateInput = document.getElementById('rate');
-        const summaryDiv = document.getElementById('summary');
-        const totalKmSpan = document.getElementById('totalKm');
-        const totalValueSpan = document.getElementById('totalValue');
-        const tripHistoryBody = document.getElementById('trip-history');
-        const messageAreaTrip = document.getElementById('message-area-trip');
-        const loadingStateTrip = document.getElementById('loading-state-trip');
-        const startPhotoButton = document.getElementById('startPhotoButton');
-        const startPhotoInput = document.getElementById('startPhotoInput');
-        const startPhotoPreview = document.getElementById('startPhotoPreview');
-        const endPhotoButton = document.getElementById('endPhotoButton');
-        const endPhotoInput = document.getElementById('endPhotoInput');
-        const endPhotoPreview = document.getElementById('endPhotoPreview');
-        
-        // GPS elements
-        const startTrackingBtn = document.getElementById('start-tracking-btn');
-        const stopTrackingBtn = document.getElementById('stop-tracking-btn');
-        const trackingStatus = document.getElementById('tracking-status');
-        const mapModal = document.getElementById('map-modal');
-        const closeMapModalBtn = document.getElementById('close-map-modal');
-
-        // Vehicle elements
-        const vehicleForm = document.getElementById('vehicle-form');
-        const vehicleListDiv = document.getElementById('vehicle-list');
-        const tripVehicleSelect = document.getElementById('tripVehicle');
-        const fuelingVehicleSelect = document.getElementById('fuelingVehicle');
-        const messageAreaVehicle = document.getElementById('message-area-vehicle');
-        const loadingStateVehicle = document.getElementById('loading-state-vehicle');
-
-        // Fueling elements
-        const fuelingForm = document.getElementById('fueling-form');
-        const fuelingHistoryBody = document.getElementById('fueling-history');
-        const consumptionSummaryDiv = document.getElementById('consumption-summary');
-        const messageAreaFueling = document.getElementById('message-area-fueling');
-        const loadingStateFueling = document.getElementById('loading-state-fueling');
-
-        // Modal elements
-        const reportModal = document.getElementById('report-modal');
-        const openReportModalBtn = document.getElementById('open-report-modal');
-        const closeReportModalBtn = document.getElementById('close-report-modal');
-        const generateReportBtn = document.getElementById('generate-report');
-        const reportResultsDiv = document.getElementById('report-results');
-
-        // --- Helper Functions ---
-        const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-        const formatDate = (timestamp) => timestamp.toDate().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        const toBase64 = file => new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = error => reject(error);
-        });
-        const showMessage = (area, text, type = 'success') => {
-            area.textContent = text;
-            area.className = `text-center text-sm mt-2 ${type === 'success' ? 'text-green-600' : 'text-red-600'}`;
-            setTimeout(() => { area.textContent = ''; }, 3000);
-        };
-        const showAuthError = (message) => {
-            authMessage.textContent = message;
-        }
-
-        // --- Authentication Logic ---
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                userId = user.uid;
-                authContainer.classList.add('hidden');
-                appContainer.classList.remove('hidden');
-                loadVehicles();
-                loadTrips();
-                loadFuelings();
-            } else {
-                userId = null;
-                authContainer.classList.remove('hidden');
-                appContainer.classList.add('hidden');
-            }
-        });
-
-        loginForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const email = loginForm.email.value;
-            const password = loginForm.password.value;
-            showAuthError('');
-
-            if (isLogin) {
-                signInWithEmailAndPassword(auth, email, password)
-                    .catch(error => {
-                        console.error('Login error:', error.code);
-                        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-                            showAuthError('E-mail ou senha inválidos.');
-                        } else {
-                            showAuthError('Ocorreu um erro ao tentar entrar.');
-                        }
-                    });
-            } else {
-                createUserWithEmailAndPassword(auth, email, password)
-                    .catch(error => {
-                        console.error('Signup error:', error.code);
-                        if (error.code === 'auth/email-already-in-use') {
-                            showAuthError('Este e-mail já está em uso.');
-                        } else if (error.code === 'auth/weak-password') {
-                            showAuthError('A senha deve ter pelo menos 6 caracteres.');
-                        } else {
-                            showAuthError('Ocorreu um erro ao criar a conta.');
-                        }
-                    });
-            }
-        });
-
-        authToggleButton.addEventListener('click', () => {
-            isLogin = !isLogin;
-            showAuthError('');
-            if (isLogin) {
-                authTitle.textContent = 'Login';
-                authButton.textContent = 'Entrar';
-                authToggleText.textContent = 'Não tem uma conta?';
-                authToggleButton.textContent = 'Cadastre-se';
-            } else {
-                authTitle.textContent = 'Criar Conta';
-                authButton.textContent = 'Cadastrar';
-                authToggleText.textContent = 'Já tem uma conta?';
-                authToggleButton.textContent = 'Faça Login';
-            }
-        });
-        
-        logoutButton.addEventListener('click', () => {
-            signOut(auth);
-        });
-
+// ... existing code ... -->
         // --- Navigation Logic ---
         tabButtons.forEach(button => {
             button.addEventListener('click', () => {
-                tabButtons.forEach(btn => btn.classList.remove('active'));
-                button.classList.add('active');
-                
-                const tab = button.getAttribute('data-tab');
-                tabContents.forEach(content => {
-                    if (content.id === `${tab}-section`) {
-                        content.classList.remove('hidden');
-                    } else {
-                        content.classList.add('hidden');
-                    }
-                });
-            });
-        });
-        
+// ... existing code ... -->
         // --- Vehicle Logic ---
         const loadVehicles = () => {
             if (!userId) return;
-            const vehiclesCollection = collection(db, `/artifacts/${appId}/users/${userId}/vehicles`);
+            const vehiclesCollection = collection(db, `users/${userId}/vehicles`);
             onSnapshot(query(vehiclesCollection), (snapshot) => {
                 loadingStateVehicle.style.display = 'none';
                 vehicleListDiv.innerHTML = '';
-                tripVehicleSelect.innerHTML = '';
-                fuelingVehicleSelect.innerHTML = '';
-
-                vehiclesCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                if (vehiclesCache.length === 0) {
-                    vehicleListDiv.innerHTML = `<p class="p-6 text-center text-slate-500">Nenhum veículo cadastrado.</p>`;
-                    const defaultOption = '<option disabled selected>Cadastre um veículo primeiro</option>';
-                    tripVehicleSelect.innerHTML = defaultOption;
-                    fuelingVehicleSelect.innerHTML = defaultOption;
-                } else {
-                     vehiclesCache.forEach(vehicle => {
-                        const vehicleDiv = document.createElement('div');
-                        vehicleDiv.className = 'flex justify-between items-center p-3 bg-slate-50 rounded-lg';
-                        vehicleDiv.innerHTML = `
-                            <div>
-                                <p class="font-bold">${vehicle.name}</p>
-                                <p class="text-sm text-slate-500">${vehicle.plate}</p>
-                            </div>
-                        `;
-                        vehicleListDiv.appendChild(vehicleDiv);
-
-                        const option = document.createElement('option');
-                        option.value = vehicle.id;
-                        option.textContent = `${vehicle.name} (${vehicle.plate})`;
-                        tripVehicleSelect.appendChild(option.cloneNode(true));
-                        fuelingVehicleSelect.appendChild(option);
-                    });
-                }
-            });
-        };
-
+// ... existing code ... -->
         vehicleForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             if(!userId) return;
             try {
-                const vehiclesCollection = collection(db, `/artifacts/${appId}/users/${userId}/vehicles`);
+                const vehiclesCollection = collection(db, `users/${userId}/vehicles`);
                 await addDoc(vehiclesCollection, {
                     name: vehicleForm.vehicleName.value,
                     plate: vehicleForm.vehiclePlate.value,
-                    createdAt: Timestamp.now()
-                });
-                showMessage(messageAreaVehicle, "Veículo salvo!", "success");
-                vehicleForm.reset();
-            } catch (error) {
-                showMessage(messageAreaVehicle, "Erro ao salvar.", "error");
-                console.error(error);
-            }
-        });
-
+// ... existing code ... -->
         // --- GPS & Tracking Logic ---
         const haversineDistance = (coords1, coords2) => {
             const toRad = x => (x * Math.PI) / 180;
-            const R = 6371; // Earth radius in km
-            const dLat = toRad(coords2.latitude - coords1.latitude);
-            const dLon = toRad(coords2.longitude - coords1.longitude);
-            const lat1 = toRad(coords1.latitude);
-            const lat2 = toRad(coords2.latitude);
-
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c;
-        };
-
-        const calculateTotalDistance = (track) => {
-            let totalDistance = 0;
-            for (let i = 0; i < track.length - 1; i++) {
-                totalDistance += haversineDistance(track[i], track[i + 1]);
-            }
-            return totalDistance;
-        };
-        
-        startTrackingBtn.addEventListener('click', () => {
-            if (!navigator.geolocation) {
-                trackingStatus.textContent = "GPS não suportado neste navegador.";
-                return;
-            }
-            
-            isTracking = true;
-            currentTrack = [];
-            startTrackingBtn.classList.add('hidden');
-            stopTrackingBtn.classList.remove('hidden');
-            trackingStatus.textContent = "Iniciando rastreio...";
-
-            watchId = navigator.geolocation.watchPosition(
-                (position) => {
-                    const { latitude, longitude } = position.coords;
-                    currentTrack.push({ latitude, longitude });
-                    trackingStatus.textContent = `Rastreando... ${currentTrack.length} pontos capturados.`;
-                },
-                (error) => {
-                    trackingStatus.textContent = `Erro no GPS: ${error.message}`;
-                    isTracking = false;
-                    startTrackingBtn.classList.remove('hidden');
-                    stopTrackingBtn.classList.add('hidden');
-                },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-            );
-        });
-
-        stopTrackingBtn.addEventListener('click', () => {
-            if (watchId) navigator.geolocation.clearWatch(watchId);
-            isTracking = false;
-            startTrackingBtn.classList.remove('hidden');
-            stopTrackingBtn.classList.add('hidden');
-
-            if (currentTrack.length > 1) {
-                const distance = calculateTotalDistance(currentTrack);
-                trackingStatus.innerHTML = `Rastreio parado. Distância: <strong class="text-blue-600">${distance.toFixed(2)} km</strong>.`;
-            } else {
-                trackingStatus.textContent = "Rastreio parado. Poucos dados capturados.";
-            }
-        });
-
+// ... existing code ... -->
         // --- Trip Logic ---
         const loadTrips = () => {
             if (!userId) return;
-            const tripsCollection = collection(db, `/artifacts/${appId}/users/${userId}/trips`);
+            const tripsCollection = collection(db, `users/${userId}/trips`);
             onSnapshot(query(tripsCollection), (snapshot) => {
                 loadingStateTrip.style.display = 'none';
                 tripHistoryBody.innerHTML = '';
-                tripsCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                tripsCache.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
-
-                if (tripsCache.length === 0) {
-                    tripHistoryBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-500">Nenhum deslocamento.</td></tr>`;
-                } else {
-                    tripsCache.forEach(trip => {
-                        const row = document.createElement('tr');
-                        row.className = 'hover:bg-slate-50';
-                        const mapButton = trip.gpsTrack && trip.gpsTrack.length > 0 
-                            ? `<button class="view-map-btn p-2 text-blue-500 hover:text-blue-700" data-trip-id="${trip.id}">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                               </button>` 
-                            : '';
-
-                        row.innerHTML = `
-                            <td class="p-3 text-sm">${formatDate(trip.createdAt)}</td>
-                            <td class="p-3">${trip.reason}</td>
-                            <td class="p-3 text-right">${trip.totalKm.toFixed(2)} km</td>
-                            <td class="p-3 text-right font-semibold text-green-600">${formatCurrency(trip.reimbursementValue)}</td>
-                            <td class="p-3 text-center">${mapButton}</td>
-                        `;
-                        tripHistoryBody.appendChild(row);
-                    });
-                }
-            });
-        };
-        
-        tripHistoryBody.addEventListener('click', (e) => {
-            const mapButton = e.target.closest('.view-map-btn');
-            if (mapButton) {
-                const tripId = mapButton.dataset.tripId;
-                const trip = tripsCache.find(t => t.id === tripId);
-                if (trip && trip.gpsTrack) {
-                    openMap(trip.gpsTrack);
-                }
-            }
-        });
-        
+// ... existing code ... -->
         tripForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             if (!userId) return;
             if (isTracking) {
-                showMessage(messageAreaTrip, "Pare o rastreio antes de salvar.", "error");
-                return;
-            }
-            if (endKmInput.value <= startKmInput.value) {
-                showMessage(messageAreaTrip, "KM de chegada deve ser maior.", "error");
+// ... existing code ... -->
                 return;
             }
             try {
-                const tripsCollection = collection(db, `/artifacts/${appId}/users/${userId}/trips`);
+                const tripsCollection = collection(db, `users/${userId}/trips`);
                 await addDoc(tripsCollection, {
                     vehicleId: tripForm.tripVehicle.value,
                     reason: tripForm.reason.value,
-                    startKm: parseFloat(tripForm.startKm.value),
-                    endKm: parseFloat(tripForm.endKm.value),
-                    rate: parseFloat(tripForm.rate.value),
-                    totalKm: parseFloat(endKmInput.value) - parseFloat(startKmInput.value),
-                    reimbursementValue: (parseFloat(endKmInput.value) - parseFloat(startKmInput.value)) * parseFloat(rateInput.value),
-                    gpsTrack: currentTrack,
-                    createdAt: Timestamp.now(),
-                });
-                showMessage(messageAreaTrip, "Deslocamento salvo!", "success");
-                tripForm.reset();
-                summaryDiv.classList.add('hidden');
-                startPhotoPreview.classList.add('hidden'); 
-                endPhotoPreview.classList.add('hidden');
-                // startPhotoBase64 = null; // These variables were not defined, should they be?
-                // endPhotoBase64 = null;
-                currentTrack = [];
-                trackingStatus.textContent = "";
-            } catch (error) {
-                showMessage(messageAreaTrip, "Erro ao salvar.", "error");
-                console.error(error);
-            }
-        });
-        
+// ... existing code ... -->
         // --- Map Modal Logic ---
         const openMap = (track) => {
             mapModal.classList.add('active');
-            setTimeout(() => { mapModal.querySelector('div').classList.remove('scale-95', 'opacity-0'); }, 10);
-            
-            setTimeout(() => {
-                if (!mapInstance) {
-                    mapInstance = L.map('map').setView([track[0].latitude, track[0].longitude], 13);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    }).addTo(mapInstance);
-                }
-
-                mapInstance.eachLayer(layer => {
-                    if (layer instanceof L.Polyline || layer instanceof L.Marker) {
-                        mapInstance.removeLayer(layer);
-                    }
-                });
-                
-                const latLngs = track.map(p => [p.latitude, p.longitude]);
-                const polyline = L.polyline(latLngs, {color: 'blue'}).addTo(mapInstance);
-                L.marker(latLngs[0]).addTo(mapInstance).bindPopup('Início');
-                L.marker(latLngs[latLngs.length - 1]).addTo(mapInstance).bindPopup('Fim');
-                
-                mapInstance.fitBounds(polyline.getBounds().pad(0.1));
-                mapInstance.invalidateSize();
-            }, 200);
-        };
-        
-        const closeMap = () => {
-             mapModal.querySelector('div').classList.add('scale-95', 'opacity-0');
-             setTimeout(() => { mapModal.classList.remove('active'); }, 300);
-        }
-        closeMapModalBtn.addEventListener('click', closeMap);
-        mapModal.addEventListener('click', (e) => { if(e.target === mapModal) closeMap(); });
-        
+// ... existing code ... -->
         // --- Fueling & Consumption Logic ---
         const loadFuelings = () => {
             if (!userId) return;
-            const fuelingsCollection = collection(db, `/artifacts/${appId}/users/${userId}/fuelings`);
+            const fuelingsCollection = collection(db, `users/${userId}/fuelings`);
             onSnapshot(query(fuelingsCollection), (snapshot) => {
                 loadingStateFueling.style.display = 'none';
                 fuelingHistoryBody.innerHTML = '';
-                const fuelings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                const fuelingsByVehicle = fuelings.reduce((acc, f) => {
-                    if (!acc[f.vehicleId]) acc[f.vehicleId] = [];
-                    acc[f.vehicleId].push(f);
-                    return acc;
-                }, {});
-
-                let allFuelingsWithConsumption = [];
-                let consumptionSummary = {};
-
-                for (const vehicleId in fuelingsByVehicle) {
-                    const vehicleFuelings = fuelingsByVehicle[vehicleId].sort((a, b) => a.odometer - b.odometer);
-                    let totalKm = 0;
-                    let totalLiters = 0;
-
-                    for (let i = 0; i < vehicleFuelings.length; i++) {
-                        const current = vehicleFuelings[i];
-                        current.consumption = null;
-                        if (i > 0) {
-                            const previous = vehicleFuelings[i-1];
-                            const kmTraveled = current.odometer - previous.odometer;
-                            const litersUsed = previous.liters;
-                             if (kmTraveled > 0 && litersUsed > 0) {
-                                current.consumption = kmTraveled / litersUsed;
-                                totalKm += kmTraveled;
-                                totalLiters += litersUsed;
-                            }
-                        }
-                        allFuelingsWithConsumption.push(current);
-                    }
-                    if (totalLiters > 0) {
-                        consumptionSummary[vehicleId] = {
-                            avgConsumption: totalKm / totalLiters,
-                            vehicleName: vehiclesCache.find(v => v.id === vehicleId)?.name || 'Desconhecido'
-                        };
-                    }
-                }
-                
-                consumptionSummaryDiv.innerHTML = '';
-                if(Object.keys(consumptionSummary).length > 0) {
-                    let summaryHTML = '<h3 class="font-bold mb-2">Média de Consumo Geral</h3>';
-                    summaryHTML += '<div class="grid grid-cols-2 gap-4">';
-                    for(const vehicleId in consumptionSummary) {
-                        const data = consumptionSummary[vehicleId];
-                        summaryHTML += `
-                        <div class="bg-slate-50 p-3 rounded-lg">
-                            <p class="text-sm text-slate-600">${data.vehicleName}</p>
-                            <p class="font-bold text-lg text-blue-700">${data.avgConsumption.toFixed(2)} km/L</p>
-                        </div>
-                        `;
-                    }
-                    summaryHTML += '</div>';
-                    consumptionSummaryDiv.innerHTML = summaryHTML;
-                }
-
-                allFuelingsWithConsumption.sort((a, b) => b.date.toMillis() - a.date.toMillis());
-                if(allFuelingsWithConsumption.length === 0) {
-                    fuelingHistoryBody.innerHTML = `<tr><td colspan="4" class="p-6 text-center text-slate-500">Nenhum abastecimento.</td></tr>`;
-                } else {
-                    allFuelingsWithConsumption.forEach(f => {
-                        const row = document.createElement('tr');
-                        const vehicleName = vehiclesCache.find(v => v.id === f.vehicleId)?.name || '...';
-                        row.innerHTML = `
-                            <td class="p-3 text-sm">${formatDate(f.date)}</td>
-                            <td class="p-3">${vehicleName}</td>
-                            <td class="p-3 text-right">${f.liters.toFixed(2)} L</td>
-                            <td class="p-3 text-right font-semibold ${f.consumption ? 'text-blue-600' : 'text-slate-400'}">
-                                ${f.consumption ? `${f.consumption.toFixed(2)} km/L` : '-'}
-                            </td>
-                        `;
-                        fuelingHistoryBody.appendChild(row);
-                    });
-                }
-            });
-        };
-        
+// ... existing code ... -->
         fuelingForm.addEventListener('submit', async (e) => {
              e.preventDefault();
             if(!userId) return;
             try {
-                const fuelingsCollection = collection(db, `/artifacts/${appId}/users/${userId}/fuelings`);
+                const fuelingsCollection = collection(db, `users/${userId}/fuelings`);
                  await addDoc(fuelingsCollection, {
                     vehicleId: fuelingForm.fuelingVehicle.value,
                     date: Timestamp.fromDate(new Date(fuelingForm.fuelingDate.value + 'T12:00:00')),
-                    odometer: parseFloat(fuelingForm.fuelingOdometer.value),
-                    liters: parseFloat(fuelingForm.fuelingLiters.value),
-                    cost: parseFloat(fuelingForm.fuelingCost.value)
-                });
-                showMessage(messageAreaFueling, "Abastecimento salvo!", "success");
-                fuelingForm.reset();
-            } catch (error) {
-                showMessage(messageAreaFueling, "Erro ao salvar.", "error");
-                console.error(error);
-            }
-        });
-
-        // --- Report Modal Logic ---
-        openReportModalBtn.addEventListener('click', () => {
-            reportModal.classList.add('active');
-            setTimeout(() => { reportModal.querySelector('div').classList.remove('scale-95', 'opacity-0'); }, 10);
-        });
-        const closeModal = () => {
-             reportModal.querySelector('div').classList.add('scale-95', 'opacity-0');
-             setTimeout(() => { reportModal.classList.remove('active'); }, 300);
-        }
-        closeReportModalBtn.addEventListener('click', closeModal);
-        reportModal.addEventListener('click', (e) => { if(e.target === reportModal) closeModal(); });
-
+// ... existing code ... -->
         generateReportBtn.addEventListener('click', async () => {
              if (!userId) return;
             const startDate = document.getElementById('startDate').value;
-            const endDate = document.getElementById('endDate').value;
-            if (!startDate || !endDate) {
-                reportResultsDiv.innerHTML = `<p class="text-red-500">Selecione as datas.</p>`;
-                return;
-            }
-            const startTimestamp = Timestamp.fromDate(new Date(startDate + 'T00:00:00'));
-            const endTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
+// ... existing code ... -->
             reportResultsDiv.innerHTML = `<p class="text-slate-500">Gerando...</p>`;
 
             try {
-                const tripsCollection = collection(db, `/artifacts/${appId}/users/${userId}/trips`);
+                const tripsCollection = collection(db, `users/${userId}/trips`);
                 const q = query(tripsCollection, where("createdAt", ">=", startTimestamp), where("createdAt", "<=", endTimestamp));
                 const querySnapshot = await getDocs(q);
                 let totalKmReport = 0, totalValueReport = 0, reportHTML = '';
-
-                if (querySnapshot.empty) {
-                     reportResultsDiv.innerHTML = `<p class="text-center p-4 bg-slate-50 rounded-lg">Nenhum registro no período.</p>`;
-                     return;
-                }
-                const reportItems = [];
-                querySnapshot.forEach((doc) => {
-                    const trip = doc.data();
-                    reportItems.push(trip);
-                    totalKmReport += trip.totalKm;
-                    totalValueReport += trip.reimbursementValue;
-                });
-                
-                reportItems.sort((a, b) => a.createdAt.toMillis() - b.createdAt.toMillis());
-
-                reportHTML += `<ul class="divide-y divide-slate-200 max-h-60 overflow-y-auto pr-2">`;
-                reportItems.forEach(trip => {
-                    reportHTML += `<li class="py-3"><div class="flex justify-between items-center text-sm"><div><p class="font-semibold">${trip.reason}</p><p class="text-slate-500">${formatDate(trip.createdAt)}</p></div><div class="text-right"><p class="font-medium text-green-600">${formatCurrency(trip.reimbursementValue)}</p><p class="text-slate-500">${trip.totalKm.toFixed(2)} km</p></div></div></li>`;
-                });
-                 reportHTML += `</ul>`;
-                 reportHTML += `<div class="mt-6 pt-4 border-t border-slate-200 bg-slate-50 p-4 rounded-lg"><h4 class="font-bold text-lg mb-2">Resumo do Período</h4><div class="flex justify-between items-center"><span class="text-slate-600">Distância Total:</span><span class="font-bold text-slate-800">${totalKmReport.toFixed(2)} km</span></div><div class="flex justify-between items-center mt-1"><span class="text-slate-600">Reembolso Total:</span><span class="font-bold text-green-700 text-xl">${formatCurrency(totalValueReport)}</span></div></div>`;
-                reportResultsDiv.innerHTML = reportHTML;
-            } catch (error) {
-                console.error("Error generating report: ", error);
-                reportResultsDiv.innerHTML = `<p class="text-red-500">Erro ao gerar o relatório.</p>`;
-            }
-        });
-
-    </script>
-</body>
-</html>
-
+// ... existing code ... -->
